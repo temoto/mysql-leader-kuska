@@ -6,7 +6,7 @@ Set of configs and scripts to keep a single mysql server from a set of replicas 
 If you are determined to use ring replication, this may help to automate writable master election.
 
 Requirements
-^^^^^^^^^^^^
+------------
 
 * Any Mysql compatible server (maria, percona, etc)
 * Consul https://www.consul.io/
@@ -15,7 +15,7 @@ Requirements
 * application does not cache DNS responses
 
 Installation
-^^^^^^^^^^^^
+------------
 
 * enable script checks in consul https://www.consul.io/docs/agent/options.html#_enable_script_checks
 * copy entire directory structure to all mysql server machines
