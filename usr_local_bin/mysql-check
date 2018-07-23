@@ -1,0 +1,57 @@
+#!/bin/bash
+set -eu
+
+usage() {
+  echo "usage: $(basename $0) CHECKTYPE MYSQLOPTS..." >&2
+  echo " CHECKTYPE: alive, readonly, writable" >&2
+  echo " MYSQLOPTS see man mysql options for connection, like -h serveraddr" >&2
+  exit $1
+}
+
+main() {
+  if [[ $# -lt 1 ]] ; then usage 1 ; fi
+  if [[ "$1" = --help ]] || [[ "$1" = -h* ]] ; then usage 0 ; fi
+
+  local chk="$1" ; shift
+  mysql_opts="$@"
+  mysql_prefix="mysql -BL $mysql_opts"
+
+  case $chk in
+  alive)
+    exec mysqladmin ping $mysql_opts
+    ;;
+  readonly)
+    exec test "$(select_readonly)" -eq 1
+    ;;
+  writable)
+    exec test "$(select_readonly)" -eq 0
+    ;;
+  slave-behind)
+    local status=$($mysql_prefix -e 'show slave status\G')
+    if [[ -z "$status" ]] ; then
+      echo "show slave status empty - it is not a slave!" >&2
+      exit 1
+    fi
+    local x=$(awk '/Seconds_Behind_Master/{ IFS=":" ; print $2 }' <<<"$status")
+    if [[ -z "$x" ]] ; then
+      echo "lag unknown" >&2
+      echo "$status" |fgrep -i status >&2
+      exit 1
+    fi
+    echo "$x"
+    exec test "$x" -eq 0
+    ;;
+  *)
+    usage 1
+    ;;
+  esac
+}
+
+select_readonly() {
+  local x=$($mysql_prefix -N -e 'select @@global.read_only')
+  echo "$mysql_prefix @@global.read_only = '$x'" >&2
+  test -n "$x"
+  echo "$x"
+}
+
+main "$@"

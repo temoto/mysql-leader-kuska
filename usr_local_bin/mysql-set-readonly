@@ -1,0 +1,12 @@
+#!/bin/bash
+set -eu
+echo "$(basename $0)" >&2
+consul maint -enable -service $mysql_service_write
+if [[ "${1:-}" = "-service-pre" ]] ; then
+  # started before mysqld which must be configured read-only=on -> skip SET GLOBAL
+  exit 0
+fi
+# wait client DNS cache to avoid writing attempts
+# consul server dns_config.service_ttl +1s
+sleep 3s
+mysql -BLNe 'SET GLOBAL read_only=1'

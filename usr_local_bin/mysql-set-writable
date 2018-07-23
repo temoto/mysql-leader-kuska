@@ -1,0 +1,89 @@
+#!/bin/bash
+set -eu
+programname=$(basename $0)
+
+opt_force=
+while [[ $# -gt 0 ]] ; do
+  case $1 in
+  -force)
+    opt_force=y
+    ;;
+  *)
+    echo 'If unsure, do not use this. Contact system administrator.' >&2
+    exit 1
+    ;;
+  esac
+  shift
+done
+
+remote=$(mysql -BELe 'show slave status\G' |awk '/Master_Host:/{ IFS=":" ; print $2 }' || true)
+if [[ -z "$remote" ]] ; then
+  echo "$programname CRITICAL ERROR call ops now! server=$(hostname) has no master" >&2
+  if [[ "$opt_force" != y ]] ; then
+    exit 1
+  fi
+fi
+
+
+main() {
+  check_remote_alive
+  check_remote_readonly
+  if [[ "$opt_force" != y ]] ; then
+    wait_master_sync
+  fi
+
+  echo "set local mysql read_only=0" >&2
+  mysql -BNLe 'SET GLOBAL read_only=0'
+  consul maint -disable -service $mysql_service_write
+
+  if [[ "$CONSUL_LOCK_HELD" = "true" ]] ; then
+    echo "under lock, wait forever" >&2
+    while true ; do sleep 60m ; done
+  fi
+}
+
+check_remote_alive() {
+  if ! mysql-check alive -h"$remote" -u "$mysql_replication_user" -p "$mysql_replication_password" ; then
+    echo "$programname CRITICAL ERROR call ops now! server=$(hostname) remote=$remote is not alive" >&2
+    # TODO email, slack, okmeter
+    if [[ "$opt_force" != y ]] ; then
+      sleep 3s
+      exit 1
+    fi
+  fi
+}
+
+check_remote_readonly() {
+  if ! mysql-check readonly -h"$remote" -u "$mysql_replication_user" -p "$mysql_replication_password" ; then
+    echo "$programname CRITICAL ERROR call ops now! server=$(hostname) remote=$remote is not readonly" >&2
+    # TODO email, slack, okmeter
+    if [[ "$opt_force" != y ]] ; then
+      sleep 3s
+      exit 1
+    fi
+  fi
+}
+
+wait_master_sync() {
+  echo "$programname INFO waiting for replication sync" >&2
+  while true ; do
+    local x=$(mysql-check slave-behind || true)
+    if [[ "$x" = "NULL" ]] ; then
+      echo "$programname INFO Seconds_Behind_Master: NULL will wait" >&2
+      sleep 1s
+      continue
+    fi
+    if [[ "1$x" -eq 10 ]] ; then
+      break
+    fi
+    if [[ "$x" -gt 0 ]] ; then
+      echo "$programname INFO Seconds_Behind_Master: $x will wait" >&2
+      sleep 3s
+      continue
+    fi
+    # mysql-check slave-behind returned error instead of number
+    exit 1
+  done
+}
+
+main "$@"

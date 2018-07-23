@@ -1,0 +1,22 @@
+[Unit]
+BindsTo=mysql.service
+After=mysql.service
+Requires=consul.service
+After=consul.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/mysql-leader.env
+ExecStart=/usr/local/bin/consul lock -verbose -child-exit-code -shell=false ${mysql_leader_consul_key} /usr/local/bin/mysql-set-writable
+ExecStopPost=/usr/local/bin/mysql-set-readonly -stop
+KillMode=mixed
+Nice=1
+PrivateTmp=yes
+Restart=always
+RestartSec=3s
+TimeoutStartSec=11s
+TimeoutStopSec=7s
+
+[Install]
+WantedBy=mysql.service
